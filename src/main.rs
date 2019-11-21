@@ -13,7 +13,10 @@ use gio::prelude::*;
 use gtk::prelude::*;
 extern crate glib;
 
-use ears::{Sound, AudioController};
+//~ use ears::{Sound, AudioController};
+
+use cpal::{StreamData, UnknownTypeOutputBuffer};
+use cpal::traits::{DeviceTrait, EventLoopTrait, HostTrait};
 
 const TRACK_COUNT: u32 = 3;
 const STEP_COUNT: usize = 32;
@@ -22,6 +25,41 @@ const STEP_COUNT: usize = 32;
 struct Step {
     pos: usize,
     gate: bool,
+}
+
+ #[derive(Copy, Clone, Debug)]
+struct Gate {
+    track:    usize,
+    playing:  bool,
+}
+
+#[derive(Copy, Clone)]
+struct Sound {
+    len:     usize,
+    pos:     usize,
+    playing: bool,
+}
+
+impl Sound {
+    fn play(&mut self) {
+        if !self.playing {
+            self.pos = 0;
+            self.playing = true;
+        } else {
+            self.pos = 0;
+        }
+    }
+    
+    fn tick(&mut self) -> usize {
+        let mut output: usize = 0;
+        if self.pos < self.len {
+            output = self.pos;
+            self.pos += 1;
+        } else {
+            self.playing = false;
+        }
+        output
+    }
 }
 
 fn main() {
@@ -96,23 +134,23 @@ fn build_ui(application: &gtk::Application) {
     
     // --
     
-    let snd1: Rc<RefCell<Sound>> = Rc::new(RefCell::new(Sound::new("/usr/share/sounds/alsa/Front_Left.wav").unwrap()));
-    let snd1_clone = snd1.clone();
-    let snd1_clone2 = snd1.clone();
+    //~ let snd1: Rc<RefCell<Sound>> = Rc::new(RefCell::new(Sound::new("/usr/share/sounds/alsa/Front_Left.wav").unwrap()));
+    //~ let snd1_clone = snd1.clone();
+    //~ let snd1_clone2 = snd1.clone();
     
     let button1 = gtk::Button::new_with_label("button1");
     button1.connect_clicked(move |_| {
-        snd1_clone.borrow_mut().play();
+        //~ snd1_clone.borrow_mut().play();
         //~ println!("sound playing");
     });
     hbox.pack_start(&button1, true, true, 0);
     
-    let snd2: Rc<RefCell<Sound>> = Rc::new(RefCell::new(Sound::new("/usr/share/sounds/alsa/Front_Right.wav").unwrap()));
-    let snd2_clone = snd2.clone();
+    //~ let snd2: Rc<RefCell<Sound>> = Rc::new(RefCell::new(Sound::new("/usr/share/sounds/alsa/Front_Right.wav").unwrap()));
+    //~ let snd2_clone = snd2.clone();
     
     let button2 = gtk::Button::new_with_label("button2");
     button2.connect_clicked(move |_| {
-        snd2_clone.borrow_mut().play();
+        //~ snd2_clone.borrow_mut().play();
         //~ println!("sound playing");
     });
     hbox.pack_start(&button2, true, true, 0);
@@ -120,7 +158,11 @@ fn build_ui(application: &gtk::Application) {
     //~ snd2.play();
     
     //~ let (tx, rx) = glib::MainContext::channel(glib::PRIORITY_DEFAULT);
-    let child = thread::spawn(move || {
+    
+    let (audio_thread_tx, audio_thread_rx): (Sender<Gate>, Receiver<Gate>) = channel();
+    
+    let _seq_thread = thread::spawn(move || {
+        /*
         let mut cwd = env::current_exe().unwrap();
         //~ loop {
             //~ let cur = cwd.pop();
@@ -145,6 +187,7 @@ fn build_ui(application: &gtk::Application) {
         cwd.push("Cassette808_HH_01.wav");
         sounds.push(Sound::new(cwd.to_str().unwrap()).unwrap());
         cwd.pop();
+        */
         
         //~ let mut ch01_snd = Sound::new("/home/pi/Downloads/Cassette808_Samples/Cassette808_BD01.wav").unwrap();
         //~ let mut ch02_snd = Sound::new("/home/pi/Downloads/Cassette808_Samples/Cassette808_Snr01.wav").unwrap();
@@ -161,11 +204,11 @@ fn build_ui(application: &gtk::Application) {
             tracks.push(vec!(false; STEP_COUNT));
         }
         
-        let mut vec = vec!(0 as usize; STEP_COUNT);
+        let mut cycle_vec = vec!(0 as usize; STEP_COUNT);
         for i in 0..STEP_COUNT {
-            vec[i] = i as usize;
+            cycle_vec[i] = i as usize;
         }
-        let mut cycle = vec.iter().cycle();
+        let mut cycle = cycle_vec.iter().cycle();
         //~ let last_frame = Instant::now();
         
         loop {
@@ -180,15 +223,6 @@ fn build_ui(application: &gtk::Application) {
             }
             
             for (chan, track) in channels_steps.iter().zip(tracks.iter_mut()) {
-                //~ for (i, step) in chan.iter().enumerate() {
-                    //~ match step.try_recv() {
-                        //~ Ok(val) => {
-                            //~ track[i] = val.gate;
-                            //~ },
-                        //~ _       => (),
-                    
-                    //~ }
-                //~ }
                 match chan.try_recv() {
                     Ok(val) => {
                         track[val.pos] = val.gate;
@@ -200,25 +234,16 @@ fn build_ui(application: &gtk::Application) {
             }
             
             if playing {
-                //~ snd1_t.play();
-                //~ cycle.next().unwrap();
                 let step_num = *cycle.next().unwrap();
                 
-                /*
-                if ch01_steps[step_num] {
-                    ch01_snd.play();
-                }
-                if ch02_steps[step_num] {
-                    ch02_snd.play();
-                }
-                if ch03_steps[step_num] {
-                    ch03_snd.play();
-                }
-                */
-                
-                for (track, sound) in tracks.iter().zip(sounds.iter_mut()) {
+                //~ for (track, sound) in tracks.iter().zip(sounds.iter_mut()) {
+                    //~ if track[step_num] {
+                        //~ sound.play();
+                    //~ }
+                //~ }
+                for (i, track) in tracks.iter().enumerate() {
                     if track[step_num] {
-                        sound.play();
+                        audio_thread_tx.send(Gate { track: i, playing: true }).unwrap();
                     }
                 }
             }
@@ -238,6 +263,151 @@ fn build_ui(application: &gtk::Application) {
             //~ thread::sleep(Duration::from_millis(100));
             //~ tx.send("thread out").unwrap();
         }
+    });
+
+    let _audio_thread = thread::spawn(move || {
+        let mut samples = Vec::new();
+        let mut sounds = Vec::new();
+        
+        let mut cwd = env::current_exe().unwrap();
+        for _i in 0..3 { cwd.pop(); }
+        cwd.push("sounds");
+        
+        // --
+        
+        cwd.push("Cassette808_BD01-16bit.wav");
+        let mut reader_1 = hound::WavReader::open(cwd.to_str().unwrap()).unwrap();
+        let sample_vec_1 = reader_1.into_samples::<i16>()
+            .map(|x| x.unwrap() / 2)
+            .collect::<Vec<_>>();
+        //~ let mut sample_cycle_1 = sample_vec_1.iter().cycle();
+        sounds.push(Sound { len: sample_vec_1.len(), pos: 0, playing: false });
+        samples.push(sample_vec_1);
+        cwd.pop();
+        
+        //~ let mut sound_1 = Sound { len: sample_vec_1.len(), pos: 0, playing: false };
+        
+        // --
+        
+        cwd.push("Cassette808_CP_01-16bit.wav");
+        let mut reader_2 = hound::WavReader::open(cwd.to_str().unwrap()).unwrap();
+        let sample_vec_2 = reader_2.into_samples::<i16>()
+            .map(|x| x.unwrap() / 2)
+            .collect::<Vec<_>>();
+        //~ let mut sample_cycle_2 = sample_vec_2.iter().cycle();
+        sounds.push(Sound { len: sample_vec_2.len(), pos: 0, playing: false });
+        samples.push(sample_vec_2);
+        cwd.pop();
+        
+        //~ let mut sound_2 = Sound { len: sample_vec_2.len(), pos: 0, playing: false };
+        
+        // --
+        
+        cwd.push("Cassette808_HH_01-16bit.wav");
+        let mut reader_3 = hound::WavReader::open(cwd.to_str().unwrap()).unwrap();
+        let sample_vec_3 = reader_3.into_samples::<i16>()
+            .map(|x| x.unwrap() / 2)
+            .collect::<Vec<_>>();
+        //~ let mut sample_cycle_2 = sample_vec_2.iter().cycle();
+        sounds.push(Sound { len: sample_vec_3.len(), pos: 0, playing: false });
+        samples.push(sample_vec_3);
+        cwd.pop();
+        
+        //~ let mut sound_2 = Sound { len: sample_vec_2.len(), pos: 0, playing: false };
+        
+        // --
+        
+        let host = cpal::default_host();
+        let event_loop = host.event_loop();
+        let device = host.default_output_device().expect("no output device available");
+        let mut supported_formats_range = device.supported_output_formats()
+            .expect("error while querying formats");
+        
+        //~ for i in supported_formats_range {
+            //~ println!("{:?}", i);
+        //~ }
+        
+        //~ let format = supported_formats_range.next()
+            //~ .expect("no supported format?!")
+            //~ .with_max_sample_rate();
+            
+        let format = cpal::Format{ channels: 1, sample_rate: cpal::SampleRate(44100), data_type: cpal::SampleFormat::I16 };
+        
+        //~ println!("{:?}", device.name().unwrap());
+        //~ println!("{:?}", format);
+            
+        let stream_id = event_loop.build_output_stream(&device, &format).unwrap();
+        
+        let mut sample_play = false;
+        
+        event_loop.run(move |stream_id, stream_result| {
+            //~ let mut sample_cycle_1 = sample_vec_1.iter().cycle();
+            //~ let mut sample_cycle_2 = sample_vec_2.iter().cycle();
+            
+            let stream_data = match stream_result {
+                Ok(data) => data,
+                Err(err) => {
+                    eprintln!("an error occurred on stream {:?}: {}", stream_id, err);
+                    return;
+                }
+                _ => return,
+            };
+
+            match stream_data {
+                //~ StreamData::Output { buffer: UnknownTypeOutputBuffer::U16(mut buffer) } => {
+                    //~ for elem in buffer.iter_mut() {
+                        //~ *elem = u16::max_value() / 2;
+                    //~ }
+                //~ },
+                StreamData::Output { buffer: UnknownTypeOutputBuffer::I16(mut buffer) } => {
+                    for elem in buffer.iter_mut() {
+                        let mut mix: i16 = 0;
+                        //~ if sound_1.playing || sound_2.playing {
+                            //~ let mut mix: i16 = 0;
+                            //~ *elem = *sample_cycle_1.next().unwrap() + *sample_cycle_2.next().unwrap();
+                            
+                            //~ if sound_1.playing {
+                                //~ mix += sample_vec_1[sound_1.tick()];
+                            //~ }
+                            //~ if sound_2.playing {
+                                //~ mix += sample_vec_2[sound_2.tick()];
+                            //~ }
+                            
+                            //~ *elem = mix;
+                        //~ } else {
+                            //~ *elem = 0;
+                        //~ }
+                        for (sound, sample) in sounds.iter_mut().zip(samples.iter()) {
+                            if sound.playing {
+                                mix += sample[sound.tick()];
+                            }
+                        }
+                        
+                        *elem = mix;
+                    }
+                },
+                //~ StreamData::Output { buffer: UnknownTypeOutputBuffer::F32(mut buffer) } => {
+                    //~ for elem in buffer.iter_mut() {
+                        //~ *elem = 0.0;
+                    //~ }
+                //~ },
+                _ => (),
+            }
+            
+            match audio_thread_rx.try_recv() {
+                Ok(val) => {
+                    //~ println!("{:?}", val);
+                    //~ sample_play = val;
+                    //~ if val {
+                        //~ sound_1.play();
+                        //~ sound_2.play();
+                    //~ }
+                    sounds[val.track].play();
+                },
+                _ => (),
+                
+            }
+        });
     });
 
     /*
