@@ -7,7 +7,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::mpsc::{channel, Sender, Receiver};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
  
 use gio::prelude::*;
 use gtk::prelude::*;
@@ -16,6 +16,13 @@ extern crate glib;
 use ears::{Sound, AudioController};
 
 const TRACK_COUNT: u32 = 3;
+const STEP_COUNT: usize = 32;
+
+ #[derive(Copy, Clone)]
+struct Step {
+    pos: usize,
+    gate: bool,
+}
 
 fn main() {
     let application =
@@ -63,97 +70,31 @@ fn build_ui(application: &gtk::Application) {
     
     for track in 0..TRACK_COUNT {
         let gui_box = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-        let mut chan = Vec::new();
+        //~ let mut chan = Vec::new();
         let gui_label = gtk::Label::new(Some(format!("ch{}", track + 1).as_str()));
         gui_box.pack_start(&gui_label, true, true, 0);
+        let (chan_tx, chan_rx): (Sender<Step>, Receiver<Step>) = channel();
         
-        for step in 0..16 {
+        for step in 0..STEP_COUNT {
             let btn = gtk::ToggleButton::new_with_label(format!("{}", step + 1).as_str());
             let btn_clone = btn.clone();
-            let (step_tx, step_rx): (Sender<bool>, Receiver<bool>) = channel();
+            //~ let (step_tx, step_rx): (Sender<Step>, Receiver<Step>) = channel();
+            let step_tx = chan_tx.clone();
             btn.connect_clicked(move |_| {
-                step_tx.send(btn_clone.get_active()).unwrap();
+                step_tx.send(Step { pos: step, gate: btn_clone.get_active() }).unwrap();
                 //~ println!("{} state: {}", step, btn_clone.get_active());
             });
-            chan.push(step_rx);
+            //~ chan.push(step_rx);
             
             gui_box.pack_start(&btn, true, true, 0);
         }
         
-        channels_steps.push(chan);
+        //~ channels_steps.push(chan);
+        channels_steps.push(chan_rx);
         main_box.pack_start(&gui_box, true, true, 0);
     }
     
     // --
-    
-    /*
-    // --drum channel 1 GUI widgets
-    let ch01_box = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    let mut ch01_chan = Vec::new();
-    
-    let ch01_label = gtk::Label::new(Some("ch01"));
-    ch01_box.pack_start(&ch01_label, true, true, 0);
-    
-    for step in 0..16 {
-        let btn = gtk::ToggleButton::new_with_label(format!("{}", step + 1).as_str());
-        let btn_clone = btn.clone();
-        let (step_tx, step_rx): (Sender<bool>, Receiver<bool>) = channel();
-        btn.connect_clicked(move |_| {
-            step_tx.send(btn_clone.get_active()).unwrap();
-            //~ println!("{} state: {}", step, btn_clone.get_active());
-        });
-        ch01_chan.push(step_rx);
-        
-        ch01_box.pack_start(&btn, true, true, 0);
-    }
-    
-    main_box.pack_start(&ch01_box, true, true, 0);
-    
-    // --drum channel 2 GUI widgets
-    let ch02_box = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    let mut ch02_chan = Vec::new();
-    
-    let ch02_label = gtk::Label::new(Some("ch02"));
-    ch02_box.pack_start(&ch02_label, true, true, 0);
-    
-    for step in 0..16 {
-        let btn = gtk::ToggleButton::new_with_label(format!("{}", step + 1).as_str());
-        let btn_clone = btn.clone();
-        let (step_tx, step_rx): (Sender<bool>, Receiver<bool>) = channel();
-        btn.connect_clicked(move |_| {
-            step_tx.send(btn_clone.get_active()).unwrap();
-            //~ println!("{} state: {}", step, btn_clone.get_active());
-        });
-        ch02_chan.push(step_rx);
-        
-        ch02_box.pack_start(&btn, true, true, 0);
-    }
-    
-    main_box.pack_start(&ch02_box, true, true, 0);
-    
-    // --drum channel 3 GUI widgets
-    let ch03_box = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    let mut ch03_chan = Vec::new();
-    
-    let ch03_label = gtk::Label::new(Some("ch03"));
-    ch03_box.pack_start(&ch03_label, true, true, 0);
-    
-    for step in 0..16 {
-        let btn = gtk::ToggleButton::new_with_label(format!("{}", step + 1).as_str());
-        let btn_clone = btn.clone();
-        let (step_tx, step_rx): (Sender<bool>, Receiver<bool>) = channel();
-        btn.connect_clicked(move |_| {
-            step_tx.send(btn_clone.get_active()).unwrap();
-            //~ println!("{} state: {}", step, btn_clone.get_active());
-        });
-        ch03_chan.push(step_rx);
-        
-        ch03_box.pack_start(&btn, true, true, 0);
-    }
-    
-    main_box.pack_start(&ch03_box, true, true, 0);
-    
-    */
     
     let snd1: Rc<RefCell<Sound>> = Rc::new(RefCell::new(Sound::new("/usr/share/sounds/alsa/Front_Left.wav").unwrap()));
     let snd1_clone = snd1.clone();
@@ -180,10 +121,30 @@ fn build_ui(application: &gtk::Application) {
     
     //~ let (tx, rx) = glib::MainContext::channel(glib::PRIORITY_DEFAULT);
     let child = thread::spawn(move || {
+        let mut cwd = env::current_exe().unwrap();
+        //~ loop {
+            //~ let cur = cwd.pop();
+            //~ if cur == "target" {
+                //~ break;
+            //~ }
+        //~ }
+        for _i in 0..3 { cwd.pop(); }
+        cwd.push("sounds");
+        //~ println!("{}", cwd.to_str().unwrap());
+        
         let mut sounds = Vec::new();
-        sounds.push(Sound::new("/home/pi/Downloads/Cassette808_Samples/Cassette808_BD01.wav").unwrap());
-        sounds.push(Sound::new("/home/pi/Downloads/Cassette808_Samples/Cassette808_Snr01.wav").unwrap());
-        sounds.push(Sound::new("/home/pi/Downloads/Cassette808_Samples/Cassette808_HH_01.wav").unwrap());
+        
+        cwd.push("Cassette808_BD01.wav");
+        sounds.push(Sound::new(cwd.to_str().unwrap()).unwrap());
+        cwd.pop();
+        
+        cwd.push("Cassette808_Snr01.wav");
+        sounds.push(Sound::new(cwd.to_str().unwrap()).unwrap());
+        cwd.pop();
+        
+        cwd.push("Cassette808_HH_01.wav");
+        sounds.push(Sound::new(cwd.to_str().unwrap()).unwrap());
+        cwd.pop();
         
         //~ let mut ch01_snd = Sound::new("/home/pi/Downloads/Cassette808_Samples/Cassette808_BD01.wav").unwrap();
         //~ let mut ch02_snd = Sound::new("/home/pi/Downloads/Cassette808_Samples/Cassette808_Snr01.wav").unwrap();
@@ -191,22 +152,27 @@ fn build_ui(application: &gtk::Application) {
         
         let mut playing = false;
         
-        let mut ch01_steps = vec!(false; 16);
-        let mut ch02_steps = vec!(false; 16);
-        let mut ch03_steps = vec!(false; 16);
+        //~ let mut ch01_steps = vec!(false; STEP_COUNT);
+        //~ let mut ch02_steps = vec!(false; STEP_COUNT);
+        //~ let mut ch03_steps = vec!(false; STEP_COUNT);
         
         let mut tracks = Vec::new();
         for i in 0..TRACK_COUNT {
-            tracks.push(vec!(false; 16));
+            tracks.push(vec!(false; STEP_COUNT));
         }
         
-        let mut vec = vec!(0 as usize; 16);
-        for i in 0..16 {
+        let mut vec = vec!(0 as usize; STEP_COUNT);
+        for i in 0..STEP_COUNT {
             vec[i] = i as usize;
         }
         let mut cycle = vec.iter().cycle();
+        //~ let last_frame = Instant::now();
         
         loop {
+            let frame_start = Instant::now();
+            //~ let dt = (now - last_frame).as_micros() as f32 / 1000000.0;
+            //~ last_frame = now;
+            
             match rx.try_recv() {
                 Ok(val) => playing = val,
                 _       => (),
@@ -214,52 +180,24 @@ fn build_ui(application: &gtk::Application) {
             }
             
             for (chan, track) in channels_steps.iter().zip(tracks.iter_mut()) {
-                for (i, step) in chan.iter().enumerate() {
-                    match step.try_recv() {
-                        Ok(val) => {
-                            //~ println!("step {} - {}", i, val);
-                            track[i] = val;
-                            },
-                        _       => (),
+                //~ for (i, step) in chan.iter().enumerate() {
+                    //~ match step.try_recv() {
+                        //~ Ok(val) => {
+                            //~ track[i] = val.gate;
+                            //~ },
+                        //~ _       => (),
                     
-                    }
-                }
-            }
-            
-            /*
-            for (i, step) in ch01_chan.iter().enumerate() {
-                match step.try_recv() {
+                    //~ }
+                //~ }
+                match chan.try_recv() {
                     Ok(val) => {
-                        //~ println!("step {} - {}", i, val);
-                        ch01_steps[i] = val;
+                        track[val.pos] = val.gate;
                         },
                     _       => (),
                 
                 }
-            }
-            
-            for (i, step) in ch02_chan.iter().enumerate() {
-                match step.try_recv() {
-                    Ok(val) => {
-                        //~ println!("step {} - {}", i, val);
-                        ch02_steps[i] = val;
-                        },
-                    _       => (),
                 
-                }
             }
-            
-            for (i, step) in ch03_chan.iter().enumerate() {
-                match step.try_recv() {
-                    Ok(val) => {
-                        //~ println!("step {} - {}", i, val);
-                        ch03_steps[i] = val;
-                        },
-                    _       => (),
-                
-                }
-            }
-            */
             
             if playing {
                 //~ snd1_t.play();
@@ -284,7 +222,20 @@ fn build_ui(application: &gtk::Application) {
                     }
                 }
             }
-            thread::sleep(Duration::from_millis(200));
+            
+            let last_frame = Instant::now();
+            
+            //~ while ((Instant::now() - last_frame).as_micros() as f32) < 150000.0 {
+            //~ while ((Instant::now() - frame_start).as_micros() as f32) < 100000.0 {
+            while ((frame_start.elapsed()).as_micros() as f32) < 100000.0 {
+                thread::yield_now();
+                //~ thread::sleep(Duration::from_millis(1));
+            }
+            //~ println!("{}", (Instant::now() - last_frame).as_micros());
+            //~ println!("{}", (Instant::now() - frame_start).as_micros());
+            //~ let last_frame = Instant::now();
+            
+            //~ thread::sleep(Duration::from_millis(100));
             //~ tx.send("thread out").unwrap();
         }
     });
