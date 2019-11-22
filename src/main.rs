@@ -18,19 +18,13 @@ extern crate glib;
 use cpal::{StreamData, UnknownTypeOutputBuffer};
 use cpal::traits::{DeviceTrait, EventLoopTrait, HostTrait};
 
-const TRACK_COUNT: u32 = 3;
+const TRACK_COUNT: usize = 3;
 const STEP_COUNT: usize = 32;
 
- #[derive(Copy, Clone)]
+#[derive(Copy, Clone)]
 struct Step {
     pos: usize,
     gate: bool,
-}
-
- #[derive(Copy, Clone, Debug)]
-struct Gate {
-    track:    usize,
-    playing:  bool,
 }
 
 #[derive(Copy, Clone)]
@@ -93,12 +87,12 @@ fn build_ui(application: &gtk::Application) {
     let hbox = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     let main_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
     
-    let (tx, rx): (Sender<bool>, Receiver<bool>) = channel();
+    let (start_tx, start_rx): (Sender<bool>, Receiver<bool>) = channel();
     
     let button_start = gtk::ToggleButton::new_with_label("start");
     let button_start_clone = button_start.clone();
     button_start.connect_clicked(move |_| {
-        tx.send(button_start_clone.get_active()).unwrap();
+        start_tx.send(button_start_clone.get_active()).unwrap();
     });
     hbox.pack_start(&button_start, true, true, 0);
     
@@ -159,45 +153,10 @@ fn build_ui(application: &gtk::Application) {
     
     //~ let (tx, rx) = glib::MainContext::channel(glib::PRIORITY_DEFAULT);
     
-    let (audio_thread_tx, audio_thread_rx): (Sender<Gate>, Receiver<Gate>) = channel();
+    let (audio_thread_tx, audio_thread_rx): (Sender<[bool; TRACK_COUNT]>, Receiver<[bool; TRACK_COUNT]>) = channel();
     
     let _seq_thread = thread::spawn(move || {
-        /*
-        let mut cwd = env::current_exe().unwrap();
-        //~ loop {
-            //~ let cur = cwd.pop();
-            //~ if cur == "target" {
-                //~ break;
-            //~ }
-        //~ }
-        for _i in 0..3 { cwd.pop(); }
-        cwd.push("sounds");
-        //~ println!("{}", cwd.to_str().unwrap());
-        
-        let mut sounds = Vec::new();
-        
-        cwd.push("Cassette808_BD01.wav");
-        sounds.push(Sound::new(cwd.to_str().unwrap()).unwrap());
-        cwd.pop();
-        
-        cwd.push("Cassette808_Snr01.wav");
-        sounds.push(Sound::new(cwd.to_str().unwrap()).unwrap());
-        cwd.pop();
-        
-        cwd.push("Cassette808_HH_01.wav");
-        sounds.push(Sound::new(cwd.to_str().unwrap()).unwrap());
-        cwd.pop();
-        */
-        
-        //~ let mut ch01_snd = Sound::new("/home/pi/Downloads/Cassette808_Samples/Cassette808_BD01.wav").unwrap();
-        //~ let mut ch02_snd = Sound::new("/home/pi/Downloads/Cassette808_Samples/Cassette808_Snr01.wav").unwrap();
-        //~ let mut ch03_snd = Sound::new("/home/pi/Downloads/Cassette808_Samples/Cassette808_HH_01.wav").unwrap();
-        
         let mut playing = false;
-        
-        //~ let mut ch01_steps = vec!(false; STEP_COUNT);
-        //~ let mut ch02_steps = vec!(false; STEP_COUNT);
-        //~ let mut ch03_steps = vec!(false; STEP_COUNT);
         
         let mut tracks = Vec::new();
         for i in 0..TRACK_COUNT {
@@ -216,7 +175,7 @@ fn build_ui(application: &gtk::Application) {
             //~ let dt = (now - last_frame).as_micros() as f32 / 1000000.0;
             //~ last_frame = now;
             
-            match rx.try_recv() {
+            match start_rx.try_recv() {
                 Ok(val) => playing = val,
                 _       => (),
                 
@@ -227,32 +186,28 @@ fn build_ui(application: &gtk::Application) {
                     Ok(val) => {
                         track[val.pos] = val.gate;
                         },
-                    _       => (),
-                
+                    _ => (),
                 }
-                
             }
             
             if playing {
                 let step_num = *cycle.next().unwrap();
-                
-                //~ for (track, sound) in tracks.iter().zip(sounds.iter_mut()) {
-                    //~ if track[step_num] {
-                        //~ sound.play();
-                    //~ }
-                //~ }
+
+                let mut arr_out = [false; TRACK_COUNT];
                 for (i, track) in tracks.iter().enumerate() {
                     if track[step_num] {
-                        audio_thread_tx.send(Gate { track: i, playing: true }).unwrap();
+                        //~ audio_thread_tx.send(Gate { track: i, playing: true }).unwrap();
+                        arr_out[i] = true;
                     }
                 }
+                audio_thread_tx.send(arr_out).unwrap();
             }
             
             let last_frame = Instant::now();
             
             //~ while ((Instant::now() - last_frame).as_micros() as f32) < 150000.0 {
             //~ while ((Instant::now() - frame_start).as_micros() as f32) < 100000.0 {
-            while ((frame_start.elapsed()).as_micros() as f32) < 100000.0 {
+            while ((frame_start.elapsed()).as_micros() as f32) < 80000.0 {
                 thread::yield_now();
                 //~ thread::sleep(Duration::from_millis(1));
             }
@@ -395,14 +350,13 @@ fn build_ui(application: &gtk::Application) {
             }
             
             match audio_thread_rx.try_recv() {
-                Ok(val) => {
-                    //~ println!("{:?}", val);
-                    //~ sample_play = val;
-                    //~ if val {
-                        //~ sound_1.play();
-                        //~ sound_2.play();
-                    //~ }
-                    sounds[val.track].play();
+                Ok(v) => {
+                    //~ sounds[val.track].play();
+                    for (i, val) in v.iter().enumerate() {
+                        if *val {
+                           sounds[i].play();
+                        }
+                    }
                 },
                 _ => (),
                 
