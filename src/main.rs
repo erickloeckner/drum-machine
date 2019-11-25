@@ -18,7 +18,7 @@ extern crate glib;
 use cpal::{StreamData, UnknownTypeOutputBuffer};
 use cpal::traits::{DeviceTrait, EventLoopTrait, HostTrait};
 
-const TRACK_COUNT: usize = 3;
+const TRACK_COUNT: usize = 4;
 const STEP_COUNT: usize = 32;
 
 #[derive(Copy, Clone)]
@@ -127,17 +127,24 @@ fn build_ui(application: &gtk::Application) {
     }
     
     // --
+    let (tempo_tx, tempo_rx): (Sender<f32>, Receiver<f32>) = channel();
     
-    //~ let snd1: Rc<RefCell<Sound>> = Rc::new(RefCell::new(Sound::new("/usr/share/sounds/alsa/Front_Left.wav").unwrap()));
-    //~ let snd1_clone = snd1.clone();
-    //~ let snd1_clone2 = snd1.clone();
-    
-    let button1 = gtk::Button::new_with_label("button1");
-    button1.connect_clicked(move |_| {
-        //~ snd1_clone.borrow_mut().play();
-        //~ println!("sound playing");
+    let tempo_in = gtk::SpinButton::new_with_range(10.0, 300.0, 1.0);
+    tempo_in.connect_input(move |tempo_in| {
+        let text = tempo_in.get_text().unwrap();
+        //~ match text.parse::<f32>() {
+            
+        //~ }
+        
+        match text.parse::<f64>() {
+            Ok(value) => {
+                tempo_tx.send(value as f32).unwrap();
+                Some(Ok(value))
+            },
+            Err(_) => Some(Err(())),
+        }
     });
-    hbox.pack_start(&button1, true, true, 0);
+    hbox.pack_start(&tempo_in, true, true, 0);
     
     //~ let snd2: Rc<RefCell<Sound>> = Rc::new(RefCell::new(Sound::new("/usr/share/sounds/alsa/Front_Right.wav").unwrap()));
     //~ let snd2_clone = snd2.clone();
@@ -157,6 +164,8 @@ fn build_ui(application: &gtk::Application) {
     
     let _seq_thread = thread::spawn(move || {
         let mut playing = false;
+        let mut tempo: f32 = 120.0;
+        let mut step_micros: f32 = 60.0 / tempo / (STEP_COUNT as f32 / 4.0) * 1000000.0;
         
         let mut tracks = Vec::new();
         for i in 0..TRACK_COUNT {
@@ -177,6 +186,15 @@ fn build_ui(application: &gtk::Application) {
             
             match start_rx.try_recv() {
                 Ok(val) => playing = val,
+                _       => (),
+                
+            }
+            
+            match tempo_rx.try_recv() {
+                Ok(val) => {
+                    tempo = val;
+                    step_micros = 60.0 / tempo / (STEP_COUNT as f32 / 4.0) * 1000000.0;
+                },
                 _       => (),
                 
             }
@@ -207,7 +225,7 @@ fn build_ui(application: &gtk::Application) {
             
             //~ while ((Instant::now() - last_frame).as_micros() as f32) < 150000.0 {
             //~ while ((Instant::now() - frame_start).as_micros() as f32) < 100000.0 {
-            while ((frame_start.elapsed()).as_micros() as f32) < 80000.0 {
+            while ((frame_start.elapsed()).as_micros() as f32) < step_micros {
                 thread::yield_now();
                 //~ thread::sleep(Duration::from_millis(1));
             }
@@ -244,7 +262,7 @@ fn build_ui(application: &gtk::Application) {
         
         // --
         
-        cwd.push("Cassette808_CP_01-16bit.wav");
+        cwd.push("Cassette808_Snr03-16bit.wav");
         let mut reader_2 = hound::WavReader::open(cwd.to_str().unwrap()).unwrap();
         let sample_vec_2 = reader_2.into_samples::<i16>()
             .map(|x| x.unwrap() / 2)
@@ -269,6 +287,18 @@ fn build_ui(application: &gtk::Application) {
         cwd.pop();
         
         //~ let mut sound_2 = Sound { len: sample_vec_2.len(), pos: 0, playing: false };
+        
+        // --
+        
+        cwd.push("Cassette808_HHo_01-16bit.wav");
+        let mut reader_4 = hound::WavReader::open(cwd.to_str().unwrap()).unwrap();
+        let sample_vec_4 = reader_4.into_samples::<i16>()
+            .map(|x| x.unwrap() / 2)
+            .collect::<Vec<_>>();
+        //~ let mut sample_cycle_2 = sample_vec_2.iter().cycle();
+        sounds.push(Sound { len: sample_vec_4.len(), pos: 0, playing: false });
+        samples.push(sample_vec_4);
+        cwd.pop();
         
         // --
         
