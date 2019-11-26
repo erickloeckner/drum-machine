@@ -56,21 +56,83 @@ impl Sound {
     }
 }
 
+const STYLE: &str = "
+#step-odd {
+    background-image: -gtk-gradient (linear,
+                                     0 0, 1 0,
+                                     color-stop(0.0, #505050),
+                                     color-stop(0.5, #6f6f6f),
+                                     color-stop(1.0, #505050));
+    padding-left:   4px;
+    padding-right:  4px;
+    padding-top:    2px;
+    padding-bottom: 2px;
+    min-width:      25px;
+    transition-property: none;
+}
+#step-odd:checked {
+    background-image: -gtk-gradient (linear,
+                                     0 0, 1 0,
+                                     color-stop(0.0, #801010),
+                                     color-stop(0.5, #9f2020),
+                                     color-stop(1.0, #801010));
+    padding-left:   4px;
+    padding-right:  4px;
+    padding-top:    2px;
+    padding-bottom: 2px;
+    min-width:      25px;
+    transition-property: none;
+}
+#step-even {
+    background-image: -gtk-gradient (linear,
+                                     0 0, 1 0,
+                                     color-stop(0.0, #606060),
+                                     color-stop(0.5, #7f7f7f),
+                                     color-stop(1.0, #606060));
+    padding-left:   4px;
+    padding-right:  4px;
+    padding-top:    2px;
+    padding-bottom: 2px;
+    min-width:      25px;
+    transition-property: none;
+}
+#step-even:checked {
+    background-image: -gtk-gradient (linear,
+                                     0 0, 1 0,
+                                     color-stop(0.0, #801010),
+                                     color-stop(0.5, #9f8020),
+                                     color-stop(1.0, #801010));
+    padding-left:   4px;
+    padding-right:  4px;
+    padding-top:    2px;
+    padding-bottom: 2px;
+    min-width:      25px;
+    transition-property: none;
+}
+#step-odd label {
+    color: #f2f0f0;
+    font-weight: bold;
+}
+#step-even label {
+    color: #f2f0f0;
+    font-weight: bold;
+}";
+
 fn main() {
     let application =
         gtk::Application::new(Some("com.github.drum-machine"), Default::default())
             .expect("Initialization failed...");
 
     application.connect_activate(|app| {
-        //~ let provider = gtk::CssProvider::new();
-        //~ provider
-            //~ .load_from_data(STYLE.as_bytes())
-            //~ .expect("Failed to load CSS");
-        //~ gtk::StyleContext::add_provider_for_screen(
-            //~ &gdk::Screen::get_default().expect("Error initializing gtk css provider."),
-            //~ &provider,
-            //~ gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
-        //~ );
+        let provider = gtk::CssProvider::new();
+        provider
+            .load_from_data(STYLE.as_bytes())
+            .expect("Failed to load CSS");
+        gtk::StyleContext::add_provider_for_screen(
+            &gdk::Screen::get_default().expect("Error initializing gtk css provider."),
+            &provider,
+            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
         
         build_ui(app);
     });
@@ -109,6 +171,11 @@ fn build_ui(application: &gtk::Application) {
         
         for step in 0..STEP_COUNT {
             let btn = gtk::ToggleButton::new_with_label(format!("{}", step + 1).as_str());
+            if (step / 8) % 2 == 0 {
+                gtk::WidgetExt::set_name(&btn, "step-odd");
+            } else {
+                gtk::WidgetExt::set_name(&btn, "step-even");
+            }
             let btn_clone = btn.clone();
             //~ let (step_tx, step_rx): (Sender<Step>, Receiver<Step>) = channel();
             let step_tx = chan_tx.clone();
