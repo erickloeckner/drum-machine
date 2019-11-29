@@ -13,13 +13,70 @@ use gio::prelude::*;
 use gtk::prelude::*;
 extern crate glib;
 
-//~ use ears::{Sound, AudioController};
-
 use cpal::{StreamData, UnknownTypeOutputBuffer};
 use cpal::traits::{DeviceTrait, EventLoopTrait, HostTrait};
 
 const TRACK_COUNT: usize = 4;
 const STEP_COUNT: usize = 32;
+
+#[derive(Copy, Clone)]
+struct Sequencer {
+    pos:              usize,
+    steps:            usize,
+    updated:          bool,
+    sample:           i16,
+    samplerate:       u32,
+    samples_per_step: f32,
+    samples_carry:    f32,
+}
+
+impl Sequencer {
+    fn new(tempo: f32, samplerate: u32, steps: usize) -> Sequencer {
+        let secs_per_step: f32 = 60.0 / tempo / 8.0;
+        let samples_per_step = secs_per_step * samplerate as f32;
+        Sequencer {
+            pos:              0,
+            steps:            steps,
+            updated:          true,
+            sample:           0,
+            samplerate:       samplerate,
+            samples_per_step: samples_per_step,
+            samples_carry:    0.0,
+        }
+    }
+    
+    fn tick(&mut self) {
+        if self.sample < (self.samples_per_step.trunc() - 1.0) as i16 {
+            self.sample += 1;
+            //~ println!("carry: {}", self.samples_carry);
+        } else {
+            if self.samples_carry < 1.0 {
+                //~ print!("sample: {} | ", self.sample);
+                //~ print!("samples/step: {} | ", self.samples_per_step);
+                self.sample = 0;
+                self.samples_carry += self.samples_per_step - self.samples_per_step.trunc();
+                if self.pos < self.steps - 1 {
+                    self.pos += 1;
+                    self.updated = true;
+                } else {
+                    self.pos = 0;
+                    self.updated = true;
+                }
+                //~ println!("step {}", self.pos);
+            } else {
+                self.sample += 1;
+                self.samples_carry -= 1.0;
+                //~ println!("carry: {}", self.samples_carry);
+            }
+        }
+    }
+    
+    fn set_tempo(&mut self, tempo: f32) {
+        let secs_per_step: f32 = 60.0 / tempo / 8.0;
+        self.samples_per_step = secs_per_step * self.samplerate as f32;
+        self.samples_carry = 0.0;
+    }
+}
 
 #[derive(Copy, Clone)]
 struct Step {
@@ -227,8 +284,9 @@ fn build_ui(application: &gtk::Application) {
     
     //~ let (tx, rx) = glib::MainContext::channel(glib::PRIORITY_DEFAULT);
     
-    let (audio_thread_tx, audio_thread_rx): (Sender<[bool; TRACK_COUNT]>, Receiver<[bool; TRACK_COUNT]>) = channel();
+    //~ let (audio_thread_tx, audio_thread_rx): (Sender<[bool; TRACK_COUNT]>, Receiver<[bool; TRACK_COUNT]>) = channel();
     
+    /*
     let _seq_thread = thread::spawn(move || {
         let mut playing = false;
         let mut tempo: f32 = 120.0;
@@ -304,6 +362,7 @@ fn build_ui(application: &gtk::Application) {
             //~ tx.send("thread out").unwrap();
         }
     });
+    */
 
     let _audio_thread = thread::spawn(move || {
         let mut samples = Vec::new();
@@ -320,12 +379,9 @@ fn build_ui(application: &gtk::Application) {
         let sample_vec_1 = reader_1.into_samples::<i16>()
             .map(|x| x.unwrap() / 2)
             .collect::<Vec<_>>();
-        //~ let mut sample_cycle_1 = sample_vec_1.iter().cycle();
         sounds.push(Sound { len: sample_vec_1.len(), pos: 0, playing: false });
         samples.push(sample_vec_1);
         cwd.pop();
-        
-        //~ let mut sound_1 = Sound { len: sample_vec_1.len(), pos: 0, playing: false };
         
         // --
         
@@ -334,13 +390,10 @@ fn build_ui(application: &gtk::Application) {
         let sample_vec_2 = reader_2.into_samples::<i16>()
             .map(|x| x.unwrap() / 2)
             .collect::<Vec<_>>();
-        //~ let mut sample_cycle_2 = sample_vec_2.iter().cycle();
         sounds.push(Sound { len: sample_vec_2.len(), pos: 0, playing: false });
         samples.push(sample_vec_2);
         cwd.pop();
-        
-        //~ let mut sound_2 = Sound { len: sample_vec_2.len(), pos: 0, playing: false };
-        
+
         // --
         
         cwd.push("Cassette808_HH_01-16bit.wav");
@@ -348,13 +401,10 @@ fn build_ui(application: &gtk::Application) {
         let sample_vec_3 = reader_3.into_samples::<i16>()
             .map(|x| x.unwrap() / 2)
             .collect::<Vec<_>>();
-        //~ let mut sample_cycle_2 = sample_vec_2.iter().cycle();
         sounds.push(Sound { len: sample_vec_3.len(), pos: 0, playing: false });
         samples.push(sample_vec_3);
         cwd.pop();
-        
-        //~ let mut sound_2 = Sound { len: sample_vec_2.len(), pos: 0, playing: false };
-        
+
         // --
         
         cwd.push("Cassette808_HHo_01-16bit.wav");
@@ -362,40 +412,29 @@ fn build_ui(application: &gtk::Application) {
         let sample_vec_4 = reader_4.into_samples::<i16>()
             .map(|x| x.unwrap() / 2)
             .collect::<Vec<_>>();
-        //~ let mut sample_cycle_2 = sample_vec_2.iter().cycle();
         sounds.push(Sound { len: sample_vec_4.len(), pos: 0, playing: false });
         samples.push(sample_vec_4);
         cwd.pop();
         
         // --
         
+        let mut playing = false;
+        let mut tempo: f32 = 120.0;
+        let mut seq = Sequencer::new(tempo, 44100, 32);
+        let mut tracks = Vec::new();
+        for _i in 0..TRACK_COUNT {
+            tracks.push(vec!(false; STEP_COUNT));
+        }
+        
+        // --
+        
         let host = cpal::default_host();
         let event_loop = host.event_loop();
         let device = host.default_output_device().expect("no output device available");
-        let mut supported_formats_range = device.supported_output_formats()
-            .expect("error while querying formats");
-        
-        //~ for i in supported_formats_range {
-            //~ println!("{:?}", i);
-        //~ }
-        
-        //~ let format = supported_formats_range.next()
-            //~ .expect("no supported format?!")
-            //~ .with_max_sample_rate();
-            
         let format = cpal::Format{ channels: 1, sample_rate: cpal::SampleRate(44100), data_type: cpal::SampleFormat::I16 };
-        
-        //~ println!("{:?}", device.name().unwrap());
-        //~ println!("{:?}", format);
-            
         let stream_id = event_loop.build_output_stream(&device, &format).unwrap();
         
-        let mut sample_play = false;
-        
         event_loop.run(move |stream_id, stream_result| {
-            //~ let mut sample_cycle_1 = sample_vec_1.iter().cycle();
-            //~ let mut sample_cycle_2 = sample_vec_2.iter().cycle();
-            
             let stream_data = match stream_result {
                 Ok(data) => data,
                 Err(err) => {
@@ -406,49 +445,37 @@ fn build_ui(application: &gtk::Application) {
             };
 
             match stream_data {
-                //~ StreamData::Output { buffer: UnknownTypeOutputBuffer::U16(mut buffer) } => {
-                    //~ for elem in buffer.iter_mut() {
-                        //~ *elem = u16::max_value() / 2;
-                    //~ }
-                //~ },
                 StreamData::Output { buffer: UnknownTypeOutputBuffer::I16(mut buffer) } => {
                     for elem in buffer.iter_mut() {
                         let mut mix: i16 = 0;
-                        //~ if sound_1.playing || sound_2.playing {
-                            //~ let mut mix: i16 = 0;
-                            //~ *elem = *sample_cycle_1.next().unwrap() + *sample_cycle_2.next().unwrap();
-                            
-                            //~ if sound_1.playing {
-                                //~ mix += sample_vec_1[sound_1.tick()];
-                            //~ }
-                            //~ if sound_2.playing {
-                                //~ mix += sample_vec_2[sound_2.tick()];
-                            //~ }
-                            
-                            //~ *elem = mix;
-                        //~ } else {
-                            //~ *elem = 0;
-                        //~ }
-                        for (sound, sample) in sounds.iter_mut().zip(samples.iter()) {
-                            if sound.playing {
-                                mix += sample[sound.tick()];
+                        
+                        if playing {
+                            if seq.updated {
+                                for (track, sound) in tracks.iter().zip(sounds.iter_mut()) {
+                                    if track[seq.pos] {
+                                        sound.play();
+                                    }
+                                }
+                                seq.updated = false;
                             }
+                            
+                            for (sound, sample) in sounds.iter_mut().zip(samples.iter()) {
+                                if sound.playing {
+                                    mix += sample[sound.tick()];
+                                }
+                            }
+                            seq.tick();
                         }
                         
                         *elem = mix;
                     }
                 },
-                //~ StreamData::Output { buffer: UnknownTypeOutputBuffer::F32(mut buffer) } => {
-                    //~ for elem in buffer.iter_mut() {
-                        //~ *elem = 0.0;
-                    //~ }
-                //~ },
                 _ => (),
             }
             
+            /*
             match audio_thread_rx.try_recv() {
                 Ok(v) => {
-                    //~ sounds[val.track].play();
                     for (i, val) in v.iter().enumerate() {
                         if *val {
                            sounds[i].play();
@@ -457,6 +484,31 @@ fn build_ui(application: &gtk::Application) {
                 },
                 _ => (),
                 
+            }
+            */
+            
+            match start_rx.try_recv() {
+                Ok(val) => playing = val,
+                _       => (),
+                
+            }
+            
+            match tempo_rx.try_recv() {
+                Ok(val) => {
+                    tempo = val;
+                    seq.set_tempo(tempo);
+                },
+                _       => (),
+                
+            }
+            
+            for (chan, track) in channels_steps.iter().zip(tracks.iter_mut()) {
+                match chan.try_recv() {
+                    Ok(val) => {
+                        track[val.pos] = val.gate;
+                        },
+                    _ => (),
+                }
             }
         });
     });
