@@ -253,7 +253,9 @@ fn build_ui(application: &gtk::Application) {
     // --
     let (tempo_tx, tempo_rx): (Sender<f32>, Receiver<f32>) = channel();
     
-    let tempo_in = gtk::SpinButton::new_with_range(10.0, 300.0, 1.0);
+    let adj = gtk::Adjustment::new(120.0, 1.0, 300.0, 1.0, 1.0, 1.0);
+    //~ let tempo_in = gtk::SpinButton::new_with_range(1.0, 300.0, 1.0);
+    let tempo_in = gtk::SpinButton::new(Some(&adj), 10.0, 3);
     tempo_in.connect_input(move |tempo_in| {
         let text = tempo_in.get_text().unwrap();
         //~ match text.parse::<f32>() {
@@ -370,6 +372,7 @@ fn build_ui(application: &gtk::Application) {
         
         let mut cwd = env::current_exe().unwrap();
         for _i in 0..3 { cwd.pop(); }
+        //~ cwd.pop();
         cwd.push("sounds");
         
         // --
