@@ -168,8 +168,12 @@ fn build_ui(application: &gtk::Application) {
     
     let hbox = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     let main_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    let p1_step_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    let p2_step_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
     
     let (start_tx, start_rx): (Sender<bool>, Receiver<bool>) = channel();
+    
+    let tabs = gtk::Notebook::new();
     
     let button_start = gtk::ToggleButton::new_with_label("start");
     let button_start_clone = button_start.clone();
@@ -219,8 +223,17 @@ fn build_ui(application: &gtk::Application) {
         
         //~ channels_steps.push(chan);
         channels_steps.push(chan_rx);
-        main_box.pack_start(&gui_box, true, true, 0);
+        //~ main_box.pack_start(&gui_box, true, true, 0);
+        p1_step_box.pack_start(&gui_box, true, true, 0);
     }
+    //~ step_box.show_all();
+    let page1_label = gtk::Label::new(Some("1"));
+    let page2_label = gtk::Label::new(Some("2"));
+    
+    tabs.append_page(&p1_step_box, Some(&page1_label));
+    tabs.append_page(&p2_step_box, Some(&page2_label));
+    
+    main_box.pack_start(&tabs, true, true, 0);
     
     // --
     let (tempo_tx, tempo_rx): (Sender<f32>, Receiver<f32>) = channel();
