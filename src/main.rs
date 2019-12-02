@@ -1,6 +1,6 @@
-use std::fs::File;
+use std::fs;
 use std::io::{self, BufRead};
-use std::path::Path;
+use std::path;
 use std::process;
 use std::env::{self, args};
 use std::cell::RefCell;
@@ -16,7 +16,8 @@ extern crate glib;
 use cpal::{StreamData, UnknownTypeOutputBuffer};
 use cpal::traits::{DeviceTrait, EventLoopTrait, HostTrait};
 
-const TRACK_COUNT: usize = 4;
+const PROJECT_NAME: &str = "drum-machine";
+const TRACK_COUNT: usize = 6;
 const STEP_COUNT: usize = 32;
 
 #[derive(Copy, Clone)]
@@ -113,77 +114,22 @@ impl Sound {
     }
 }
 
-const STYLE: &str = "
-#step-odd {
-    background-image: -gtk-gradient (linear,
-                                     0 0, 1 0,
-                                     color-stop(0.0, #505050),
-                                     color-stop(0.5, #6f6f6f),
-                                     color-stop(1.0, #505050));
-    padding-left:   4px;
-    padding-right:  4px;
-    padding-top:    2px;
-    padding-bottom: 2px;
-    min-width:      25px;
-    transition-property: none;
-}
-#step-odd:checked {
-    background-image: -gtk-gradient (linear,
-                                     0 0, 1 0,
-                                     color-stop(0.0, #801010),
-                                     color-stop(0.5, #9f2020),
-                                     color-stop(1.0, #801010));
-    padding-left:   4px;
-    padding-right:  4px;
-    padding-top:    2px;
-    padding-bottom: 2px;
-    min-width:      25px;
-    transition-property: none;
-}
-#step-even {
-    background-image: -gtk-gradient (linear,
-                                     0 0, 1 0,
-                                     color-stop(0.0, #606060),
-                                     color-stop(0.5, #7f7f7f),
-                                     color-stop(1.0, #606060));
-    padding-left:   4px;
-    padding-right:  4px;
-    padding-top:    2px;
-    padding-bottom: 2px;
-    min-width:      25px;
-    transition-property: none;
-}
-#step-even:checked {
-    background-image: -gtk-gradient (linear,
-                                     0 0, 1 0,
-                                     color-stop(0.0, #801010),
-                                     color-stop(0.5, #9f8020),
-                                     color-stop(1.0, #801010));
-    padding-left:   4px;
-    padding-right:  4px;
-    padding-top:    2px;
-    padding-bottom: 2px;
-    min-width:      25px;
-    transition-property: none;
-}
-#step-odd label {
-    color: #f2f0f0;
-    font-weight: bold;
-}
-#step-even label {
-    color: #f2f0f0;
-    font-weight: bold;
-}";
-
 fn main() {
+    //~ let mut css_path = env::current_exe().unwrap();
+    //~ for _i in 0..3 { css_path.pop(); }
+    //~ css_path.push("css");
+    let mut css_path = find_dir("css", PROJECT_NAME);
+    css_path.push("main.css");
+    let style = fs::read_to_string(css_path.to_str().unwrap()).unwrap();
+    
     let application =
         gtk::Application::new(Some("com.github.drum-machine"), Default::default())
             .expect("Initialization failed...");
 
-    application.connect_activate(|app| {
+    application.connect_activate(move |app| {
         let provider = gtk::CssProvider::new();
         provider
-            .load_from_data(STYLE.as_bytes())
+            .load_from_data(style.as_str().as_bytes())
             .expect("Failed to load CSS");
         gtk::StyleContext::add_provider_for_screen(
             &gdk::Screen::get_default().expect("Error initializing gtk css provider."),
@@ -195,6 +141,23 @@ fn main() {
     });
 
     application.run(&args().collect::<Vec<_>>());
+}
+
+fn find_dir(dir_name: &str, project_name: &str) -> path::PathBuf {
+    let mut path_out = env::current_exe().unwrap();
+    let mut res = path_out.pop();
+    loop {
+        if res {
+            if path_out.as_path().file_name().unwrap().to_str().unwrap() == project_name {
+                path_out.push(dir_name);
+                break;
+            }
+            res = path_out.pop();
+        } else {
+            break;
+        }
+    }
+    path_out
 }
 
 fn build_ui(application: &gtk::Application) {
@@ -219,10 +182,19 @@ fn build_ui(application: &gtk::Application) {
     
     let mut channels_steps = Vec::new();
     
+    let labels =   ["bassdrum",
+                    "snare",
+                    "clap",
+                    "cowbell",
+                    "closed HH",
+                    "open HH",
+    ];
+    
     for track in 0..TRACK_COUNT {
         let gui_box = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         //~ let mut chan = Vec::new();
-        let gui_label = gtk::Label::new(Some(format!("ch{}", track + 1).as_str()));
+        let gui_label = gtk::Label::new(Some(labels[track]));
+        gtk::WidgetExt::set_name(&gui_label, "track-label");
         gui_box.pack_start(&gui_label, true, true, 0);
         let (chan_tx, chan_rx): (Sender<Step>, Receiver<Step>) = channel();
         
@@ -285,102 +257,44 @@ fn build_ui(application: &gtk::Application) {
     //~ snd2.play();
     
     //~ let (tx, rx) = glib::MainContext::channel(glib::PRIORITY_DEFAULT);
-    
-    //~ let (audio_thread_tx, audio_thread_rx): (Sender<[bool; TRACK_COUNT]>, Receiver<[bool; TRACK_COUNT]>) = channel();
-    
-    /*
-    let _seq_thread = thread::spawn(move || {
-        let mut playing = false;
-        let mut tempo: f32 = 120.0;
-        let mut step_micros: f32 = 60.0 / tempo / (STEP_COUNT as f32 / 4.0) * 1000000.0;
-        
-        let mut tracks = Vec::new();
-        for i in 0..TRACK_COUNT {
-            tracks.push(vec!(false; STEP_COUNT));
-        }
-        
-        let mut cycle_vec = vec!(0 as usize; STEP_COUNT);
-        for i in 0..STEP_COUNT {
-            cycle_vec[i] = i as usize;
-        }
-        let mut cycle = cycle_vec.iter().cycle();
-        //~ let last_frame = Instant::now();
-        
-        loop {
-            let frame_start = Instant::now();
-            //~ let dt = (now - last_frame).as_micros() as f32 / 1000000.0;
-            //~ last_frame = now;
-            
-            match start_rx.try_recv() {
-                Ok(val) => playing = val,
-                _       => (),
-                
-            }
-            
-            match tempo_rx.try_recv() {
-                Ok(val) => {
-                    tempo = val;
-                    step_micros = 60.0 / tempo / (STEP_COUNT as f32 / 4.0) * 1000000.0;
-                },
-                _       => (),
-                
-            }
-            
-            for (chan, track) in channels_steps.iter().zip(tracks.iter_mut()) {
-                match chan.try_recv() {
-                    Ok(val) => {
-                        track[val.pos] = val.gate;
-                        },
-                    _ => (),
-                }
-            }
-            
-            if playing {
-                let step_num = *cycle.next().unwrap();
-
-                let mut arr_out = [false; TRACK_COUNT];
-                for (i, track) in tracks.iter().enumerate() {
-                    if track[step_num] {
-                        //~ audio_thread_tx.send(Gate { track: i, playing: true }).unwrap();
-                        arr_out[i] = true;
-                    }
-                }
-                audio_thread_tx.send(arr_out).unwrap();
-            }
-            
-            let last_frame = Instant::now();
-            
-            //~ while ((Instant::now() - last_frame).as_micros() as f32) < 150000.0 {
-            //~ while ((Instant::now() - frame_start).as_micros() as f32) < 100000.0 {
-            while ((frame_start.elapsed()).as_micros() as f32) < step_micros {
-                thread::yield_now();
-                //~ thread::sleep(Duration::from_millis(1));
-            }
-            //~ println!("{}", (Instant::now() - last_frame).as_micros());
-            //~ println!("{}", (Instant::now() - frame_start).as_micros());
-            //~ let last_frame = Instant::now();
-            
-            //~ thread::sleep(Duration::from_millis(100));
-            //~ tx.send("thread out").unwrap();
-        }
-    });
-    */
 
     let _audio_thread = thread::spawn(move || {
         let mut samples = Vec::new();
         let mut sounds = Vec::new();
         
-        let mut cwd = env::current_exe().unwrap();
-        for _i in 0..3 { cwd.pop(); }
+        //~ let mut cwd = env::current_exe().unwrap();
+        //~ for _i in 0..3 { cwd.pop(); }
         //~ cwd.pop();
-        cwd.push("sounds");
+        //~ cwd.push("sounds");
+        let mut cwd = find_dir("sounds", PROJECT_NAME);
+        
+        let sample_scale: i16 = 3;
+        
+        let names =    ["Cassette808_BD01-16bit.wav",
+                        "Cassette808_Snr03-16bit.wav",
+                        "Cassette808_CP_01-16bit.wav",
+                        "Cassette808_Cow01-16bit.wav",
+                        "Cassette808_HH_01-16bit.wav",
+                        "Cassette808_HHo_01-16bit.wav",
+        ];
+        
+        for name in names.iter() {
+            cwd.push(name);
+            let mut wavreader = hound::WavReader::open(cwd.to_str().unwrap()).unwrap();
+            let sample_vec = wavreader.into_samples::<i16>()
+                .map(|x| x.unwrap() / sample_scale)
+                .collect::<Vec<_>>();
+            sounds.push(Sound { len: sample_vec.len(), pos: 0, playing: false });
+            samples.push(sample_vec);
+            cwd.pop();
+        }
         
         // --
-        
+        /*
         cwd.push("Cassette808_BD01-16bit.wav");
         let mut reader_1 = hound::WavReader::open(cwd.to_str().unwrap()).unwrap();
         let sample_vec_1 = reader_1.into_samples::<i16>()
-            .map(|x| x.unwrap() / 2)
+            .map(|x| x.unwrap() / sample_scale)
             .collect::<Vec<_>>();
         sounds.push(Sound { len: sample_vec_1.len(), pos: 0, playing: false });
         samples.push(sample_vec_1);
@@ -391,7 +305,7 @@ fn build_ui(application: &gtk::Application) {
         cwd.push("Cassette808_Snr03-16bit.wav");
         let mut reader_2 = hound::WavReader::open(cwd.to_str().unwrap()).unwrap();
         let sample_vec_2 = reader_2.into_samples::<i16>()
-            .map(|x| x.unwrap() / 2)
+            .map(|x| x.unwrap() / sample_scale)
             .collect::<Vec<_>>();
         sounds.push(Sound { len: sample_vec_2.len(), pos: 0, playing: false });
         samples.push(sample_vec_2);
@@ -402,7 +316,7 @@ fn build_ui(application: &gtk::Application) {
         cwd.push("Cassette808_HH_01-16bit.wav");
         let mut reader_3 = hound::WavReader::open(cwd.to_str().unwrap()).unwrap();
         let sample_vec_3 = reader_3.into_samples::<i16>()
-            .map(|x| x.unwrap() / 2)
+            .map(|x| x.unwrap() / sample_scale)
             .collect::<Vec<_>>();
         sounds.push(Sound { len: sample_vec_3.len(), pos: 0, playing: false });
         samples.push(sample_vec_3);
@@ -413,17 +327,17 @@ fn build_ui(application: &gtk::Application) {
         cwd.push("Cassette808_HHo_01-16bit.wav");
         let mut reader_4 = hound::WavReader::open(cwd.to_str().unwrap()).unwrap();
         let sample_vec_4 = reader_4.into_samples::<i16>()
-            .map(|x| x.unwrap() / 2)
+            .map(|x| x.unwrap() / sample_scale)
             .collect::<Vec<_>>();
         sounds.push(Sound { len: sample_vec_4.len(), pos: 0, playing: false });
         samples.push(sample_vec_4);
         cwd.pop();
-        
+        */
         // --
         
         let mut playing = false;
         let mut tempo: f32 = 120.0;
-        let mut seq = Sequencer::new(tempo, 44100, 32);
+        let mut seq = Sequencer::new(tempo, 44100, STEP_COUNT);
         let mut tracks = Vec::new();
         for _i in 0..TRACK_COUNT {
             tracks.push(vec!(false; STEP_COUNT));
@@ -464,7 +378,8 @@ fn build_ui(application: &gtk::Application) {
                             
                             for (sound, sample) in sounds.iter_mut().zip(samples.iter()) {
                                 if sound.playing {
-                                    mix += sample[sound.tick()];
+                                    //~ mix += sample[sound.tick()];
+                                    mix = mix.saturating_add(sample[sound.tick()]);
                                 }
                             }
                             seq.tick();
@@ -492,7 +407,7 @@ fn build_ui(application: &gtk::Application) {
             
             match start_rx.try_recv() {
                 Ok(val) => playing = val,
-                _       => (),
+                _ => (),
                 
             }
             
@@ -501,7 +416,7 @@ fn build_ui(application: &gtk::Application) {
                     tempo = val;
                     seq.set_tempo(tempo);
                 },
-                _       => (),
+                _ => (),
                 
             }
             
@@ -509,7 +424,7 @@ fn build_ui(application: &gtk::Application) {
                 match chan.try_recv() {
                     Ok(val) => {
                         track[val.pos] = val.gate;
-                        },
+                    },
                     _ => (),
                 }
             }
